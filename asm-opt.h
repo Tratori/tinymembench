@@ -26,14 +26,23 @@
 
 #include <stdint.h>
 
-typedef struct
+#ifdef __cplusplus
+extern "C"
 {
-    const char *description;
-    int use_tmpbuf;
-    void (*f)(int64_t *, int64_t *, int);
-} bench_info;
+#endif
 
-bench_info *get_asm_benchmarks(void);
-bench_info *get_asm_framebuffer_benchmarks(void);
+    typedef struct
+    {
+        const char *description;
+        int use_tmpbuf;
+        void (*f)(int64_t *, int64_t *, int);
+    } bench_info;
+
+    bench_info *get_asm_benchmarks(void);
+    bench_info *get_asm_framebuffer_benchmarks(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

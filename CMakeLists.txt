@@ -27,14 +27,14 @@ set(ASM_SOURCES
     mips-32.S
 )
 
-# Add executable
+add_library(tinymembench_lib tinymembench.c util.c asm-opt.c ${ASM_SOURCES})
+target_include_directories(tinymembench_lib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+link_libraries(tinymembench_lib m)
+
+
+
 add_executable(tinymembench ${SOURCES} ${ASM_SOURCES})
+target_link_libraries(tinymembench m tinymembench_lib)
 
-# Set the linker language
 set_target_properties(tinymembench PROPERTIES LINKER_LANGUAGE C)
-
-# Link math library
-target_link_libraries(tinymembench m)
-
-# Include directories
 target_include_directories(tinymembench PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
