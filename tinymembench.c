@@ -170,7 +170,7 @@ void bandwidth_bench(int64_t *dstbuf, int64_t *srcbuf, int64_t *tmpbuf,
 }
 
 void __attribute__((noinline)) random_read_test(char *zerobuffer,
-                                                int count, int accessRange)
+                                                int count, int accessRange, uintptr_t addrmask)
 {
     uint32_t seed = 0;
     uint32_t v;
@@ -192,6 +192,7 @@ void __attribute__((noinline)) random_read_test(char *zerobuffer,
         "orr  %[v],     %[v],           %[tmp]\n"
         "and  %[tmp],   %[x7FFF0000],   %[seed]\n"
         "orr  %[v],     %[v],           %[tmp]\n"
+        "and  %[v],     %[v],           %[addrmask]\n"
         "umod %[v],     %[v],           %[accessRange]\n"
         "ldrb %[v],     [%[zerobuffer], %[v]]\n"
         "orr  %[seed],  %[seed],        %[v]\n"
@@ -206,7 +207,8 @@ void __attribute__((noinline)) random_read_test(char *zerobuffer,
           [xFF00] "r"(0xFF00), [xFF] "r"(0xFF),
           [x7FFF0000] "r"(0x7FFF0000),
           [zerobuffer] "r"(zerobuffer),
-          [accessRange] "r"(accessRange)
+          [accessRange] "r"(accessRange),
+          [addrmask] "r"(addrmask)
         : "cc");
 #else
 #define RANDOM_MEM_ACCESS()           \
@@ -216,7 +218,7 @@ void __attribute__((noinline)) random_read_test(char *zerobuffer,
     v |= (seed >> 8) & 0xFF00;        \
     seed = seed * 1103515245 + 12345; \
     v |= seed & 0x7FFF0000;           \
-    seed |= zerobuffer[v % accessRange];
+    seed |= zerobuffer[v & addrmask % accessRange];
 
     while (count >= 16)
     {
@@ -244,7 +246,7 @@ void __attribute__((noinline)) random_read_test(char *zerobuffer,
 }
 
 void __attribute__((noinline)) random_dual_read_test(char *zerobuffer,
-                                                     int count, int accessRange)
+                                                     int count, int accessRange, uintptr_t addrmask)
 {
     uint32_t seed = 0;
     uint32_t v1, v2;
@@ -272,9 +274,11 @@ void __attribute__((noinline)) random_dual_read_test(char *zerobuffer,
         "and  %[tmp],   %[xFF],         %[seed],        lsr #16\n"
         "orr  %[v2],    %[v2],          %[seed],        lsr #24\n"
         "orr  %[v1],    %[v1],          %[tmp]\n"
-        "umod %[v2],     %[v2],           %[accessRange]\n"
+        "and  %[v2],    %[v2],          %[addrmask]\n"
+        "umod %[v2],    %[v2],          %[accessRange]\n"
         "eor  %[v1],    %[v1],          %[v2]\n"
-        "umod %[v1],     %[v1],           %[accessRange]\n"
+        "and  %[v1],    %[v1],          %[addrmask]\n"
+        "umod %[v1],    %[v1],          %[accessRange]\n"
         "ldrb %[v2],    [%[zerobuffer], %[v2]]\n"
         "ldrb %[v1],    [%[zerobuffer], %[v1]]\n"
         "orr  %[seed],  %[seed],        %[v2]\n"
@@ -290,6 +294,7 @@ void __attribute__((noinline)) random_dual_read_test(char *zerobuffer,
           [xFF00] "r"(0xFF00), [xFF] "r"(0xFF),
           [x7FFF0000] "r"(0x7FFF0000),
           [zerobuffer] "r"(zerobuffer),
+          [addrmask] "r"(addrmask),
           [accessRange] "r"(accessRange)
         : "cc");
 #else
@@ -305,10 +310,10 @@ void __attribute__((noinline)) random_dual_read_test(char *zerobuffer,
     seed = seed * 1103515245 + 12345; \
     v1 |= (seed >> 16) & 0xFF;        \
     v2 |= (seed >> 24);               \
-    v2 %= accessRange;                \
+    v2 = v2 & addrmask % accessRange; \
     v1 ^= v2;                         \
     seed |= zerobuffer[v2];           \
-    seed += zerobuffer[v1 % accessRange];
+    seed += zerobuffer[v1 & addrmask % accessRange];
 
     while (count >= 16)
     {
@@ -373,14 +378,15 @@ int latency_bench(int size, int count, int use_hugepage)
 
     for (n = 1; n <= MAXREPEATS; n++)
     {
+        uintptr_t addrmask = 1;
         t_before = gettime();
-        random_read_test(buffer, count, 1);
+        random_read_test(buffer, count, 1, addrmask);
         t_after = gettime();
         if (n == 1 || t_after - t_before < t_noaccess)
             t_noaccess = t_after - t_before;
 
         t_before = gettime();
-        random_dual_read_test(buffer, count, 1);
+        random_dual_read_test(buffer, count, 1, addrmask);
         t_after = gettime();
         if (n == 1 || t_after - t_before < t_noaccess2)
             t_noaccess2 = t_after - t_before;
@@ -409,8 +415,15 @@ int latency_bench(int size, int count, int use_hugepage)
              */
             int testoffs = (rand32() % (size / testsize)) * testsize;
 
+            int accessRange = 1 << nbits;
+            uintptr_t addrmask = 1;
+            while (addrmask < accessRange)
+            {
+                addrmask <<= 1;
+            }
+            addrmask = addrmask - 1;
             t_before = gettime();
-            random_read_test(buffer + testoffs, count, 1 << nbits);
+            random_read_test(buffer + testoffs, count, accessRange, addrmask);
             t_after = gettime();
             t = t_after - t_before - t_noaccess;
             if (t < 0)
@@ -423,7 +436,7 @@ int latency_bench(int size, int count, int use_hugepage)
                 min_t = t;
 
             t_before = gettime();
-            random_dual_read_test(buffer + testoffs, count, 1 << nbits);
+            random_dual_read_test(buffer + testoffs, count, accessRange, addrmask);
             t_after = gettime();
             t2 = t_after - t_before - t_noaccess2;
             if (t2 < 0)
