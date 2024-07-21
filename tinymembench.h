@@ -99,10 +99,10 @@ extern "C"
                          bench_info *bi);
 
     void __attribute__((noinline)) random_read_test(char *zerobuffer,
-                                                    int count, int accessRange, uintptr_t addrMask);
+                                                    int count, int accessRange);
 
     void __attribute__((noinline)) random_dual_read_test(char *zerobuffer,
-                                                         int count, int accessRange, uintptr_t addrMask);
+                                                         int count, int accessRange);
 
     uint32_t rand32();
 
